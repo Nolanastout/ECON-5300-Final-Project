@@ -1,10 +1,7 @@
 ---
 title: "Do Harsher DUI Punishments Reduce Recidivism? Evidence from the 0.08 BAC Threshold"
-format: docx
-execute:
-  echo: false
-  warning: false
-  message: false
+format: pdf
+editor: visual
 ---
 
 1.  **Introduction**
@@ -273,7 +270,7 @@ The difference summary table makes the local contrasts at the 0.08 cutoff easier
 
 **7. DAG: Visualizing the causal relationship**
 
-![ ***Fig. 3. Simplified DAG showing the causal logic.***](images/dagitty-model.jpeg){#fig-dag fig-align="center" width="70%"}
+![ ***Fig. 3. Simplified DAG showing the causal logic.***](dagitty-model.jpeg){#fig-dag fig-align="center" width="70%"}
 
 The DAG presents the causal logic behind our regression discontinuity design. BAC is the running variable, and the indicator *Above08* represents the legal assignment rule that turns on at the 0.08 threshold. Crossing that threshold exposes a driver to a harsher bundle of DUI sanctions, so punishment is the treatment mechanism through which the policy rule may affect future recidivism. The node U represents unobserved driver characteristics, such as impulsiveness, alcoholism or alcohol dependence, or risk tolerance, that may influence both BAC and the likelihood of reoffending. These latent factors create a backdoor path between BAC and recidivism, which is why a simple comparison of drivers with higher and lower BAC levels would be confounded. For clarity, we do not include all observed covariates in the DAG.
 
