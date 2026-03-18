@@ -1,0 +1,464 @@
+---
+title: "Do Harsher DUI Punishments Reduce Recidivism? Evidence from the 0.08 BAC Threshold"
+format: docx
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+1.  **Introduction**
+
+    Drunk driving continues to impose substantial social and economic costs, and legal sanctions are intended to deter repeat offenses. This paper examines whether crossing the legal blood alcohol concentration (BAC) threshold of 0.08, which triggers stricter DUI penalties, affects the probability that a driver commits another drunk-driving offense. We exploit the fact that the 0.08 rule creates a sharp policy cutoff: drivers just below and just above the threshold should be similar in underlying characteristics, but those above the cutoff face harsher legal consequences. Using a regression discontinuity design, we compare drivers near this threshold to estimate the local causal effect of the policy. By focusing on observations close to the cutoff, our analysis treats the legal threshold as a natural experiment that helps isolate the deterrent impact of stricter DUI punishment on future recidivism. This paper focuses only on the 0.08 BAC threshold and does not estimate a separate RD at the 0.15 cutoff. Yet it is difficult to determine whether harsher punishment actually reduces recidivism because drivers who receive more severe penalties often differ systematically from those who receive lighter ones.
+
+2.  **Research Question**
+
+    Do harsher DUI punishments reduce the probability of future drunk-driving offenses?
+
+3.  **Background and policy context.**
+
+    In Washington State, the legal DUI threshold for adults has been BAC 0.08 since January 1, 1999. Our treatment is not a single sanction but the bundle of harsher legal consequences triggered at BAC 0.08, such as fines, jail or monitoring, license suspension, and related administrative penalties. Drivers at or above that cutoff face a DUI charge and substantially harsher statutory sanctions than drivers just below it, including higher minimum fines, mandatory jail time or home monitoring, license suspension, and insurance requirements. For a first offense, the statutory minimum penalty rises from \$865.50 with 24 hours minimum jail and a 90-day license suspension at BAC 0.08–0.15, with sanctions structured to escalate further for repeat offenders. Because punishment changes discretely at 0.08 while drivers very near the cutoff should otherwise be similar, crossing that threshold creates the policy discontinuity that makes the regression discontinuity design plausible in this setting.
+
+4.  **Empirical Strategy**
+
+    Our empirical strategy uses a local linear regression discontinuity design centered at the 0.08 BAC cutoff, which provides a credible framework for estimating the causal effect of harsher DUI punishment on future recidivism. To implement this design, we estimate the following specification:
+
+    $$
+    \text{Recidivism}_i = \beta_0 + \beta_1 \text{Above08}_i + \beta_2 (BAC_i - 0.08) + \beta_3 \big[\text{Above08}_i \times (BAC_i - 0.08)\big] + \varepsilon_i
+    $$
+
+    At a broad level, this model compares drivers just below and just above the legal threshold while allowing the relationship between BAC and recidivism to vary smoothly on either side of the cutoff. The key identifying idea is that drivers near 0.08 should be similar in all respects other than their exposure to the harsher sanction regime triggered at the legal limit. The formal role of each term in the equation, and the reasons for our final specification choices, are discussed in detail in Section 9.1.
+
+5.  **Data**
+
+    We use the DWI_Data.rdata subset of Hansen’s Washington State impaired-driving data, which contains 214,558 traffic stops in our working sample and is designed to study whether harsher punishment affects later recidivism. The key variables are the two BAC measures, bac1 and bac2, the outcome recidivism, and predetermined covariates including gender (male), race (white), Age (aged), Accident stop (acc) and year. Each driver receives two BAC tests, so to construct a single running variable for the RD design we use bac_min = pmin(bac1, bac2).\
+    This gives one BAC value per stop, avoids treating the same incident as two observations, and uses a conservative classification rule when determining whether a driver falls above or below the 0.08 legal threshold. In the sample, all key analysis variables have zero missingness, so no additional exclusions are required.
+
+6.  **Exploratory Data Analysis**
+
+    Our exploratory analysis prepares the dataset for the regression discontinuity design and provides an initial understanding of the variables used in the study. First, we construct the running variable by taking the minimum of the two BAC tests (bac_min). Next, we examine the distribution of BAC values and the density of observations near the 0.08 legal threshold to ensure sufficient data around the cutoff. We also compute the baseline recidivism rate to provide context for later estimates. These steps help verify data quality and confirm that the dataset contains enough observations near the policy threshold for a credible RD analysis.
+
+```{r}
+#| message: false
+#| warning: false
+
+library(tinytex)
+library(tidyverse)
+library(fixest)
+library(ggplot2)
+library(dplyr)
+library(dagitty)
+```
+
+```{r}
+#| message: false
+#| warning: false
+
+load("data/DWI_Data.rdata")
+ls()
+```
+
+```{r}
+# Data checks for variable accuracy
+#| label: inspect-and-check
+#| message: false
+#| warning: false
+
+# structure check
+glimpse(dwi)
+
+# variables check
+required_vars <- c("bac1", "bac2", "recidivism", "male", 
+                   "white", "aged", "acc")
+missing_vars <- setdiff(required_vars, names(dwi))
+
+if (length(missing_vars) > 0) {
+  stop("Missing required variables: ", paste(missing_vars, collapse = ", "))
+} else {
+  cat("All required variables are present.\n")
+}
+```
+
+#### 6.1. Key RDD variables (running variable and cutoffs)
+
+According to the dataset, each driver has two BAC tests, bac1 and bac2. To create one running variable for the RDD, we use the minimum of the two tests (bac_min) because the minimum BAC reading is the measure that determines guilt relative to the legal threshold in the original Hansen setting, and using it provides a conservative classification rule that avoids assigning drivers above 0.08 based on small measurement differences between the two tests. As a result, bac_min is the running variable most closely aligned with the policy rule that generates harsher punishment.
+
+```{r}
+#| label: create-rdd-vars
+#| message: false
+#| warning: false
+
+dwi <- dwi %>%
+  mutate(
+    bac_min = pmin(bac1, bac2, na.rm = TRUE),
+    above_08 = as.integer(bac_min >= 0.08),
+    bac_centered_08 = bac_min - 0.08
+  )
+
+# Sanity checks
+summary(dwi$bac_min)
+table(dwi$above_08, useNA = "ifany")
+summary(dwi$bac_centered_08)
+```
+
+#### 6.2. Initial exploration (BAC distribution and baseline recidivism)
+
+```{r}
+#| label: bac-distribution-overall
+#| message: false
+#| warning: false
+
+ggplot(dwi, aes(x = bac_min)) +
+  geom_density(fill = "skyblue", alpha = 0.45, linewidth = 1) +
+  geom_vline(xintercept = 0.08, linewidth = 1.1, 
+             linetype = "dashed", colour = "firebrick3") +
+  coord_cartesian(xlim = c(0, 0.30)) +
+  labs(
+    title = "BAC distribution (minimum of two tests)",
+    subtitle = "Dashed lines mark policy thresholds at 0.08",
+    x = "BAC (bac_min)",
+    y = "Density"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold"))
+```
+
+***Fig. 1.***
+
+The running variable, bac_min, appears well suited to the regression discontinuity design because it is both substantively aligned with the DUI policy rule and empirically well populated around the 0.08 cutoff. The summary statistics show that bac_min ranges from 0.000 to 0.435, with a median of 0.136 and a mean of 0.139, indicating substantial variation in measured BAC across the sample. The treatment classification also shows meaningful support on both sides of the threshold, with 24,807 observations below 0.08 and 189,751 at or above it. Although the sample is clearly more concentrated above the legal limit, this imbalance is not itself a problem for RD identification; what matters is whether there are enough observations sufficiently close to the cutoff to support a local comparison. Taken together, the summary measures and the density plot suggest that this condition is satisfied. Because bac_min is defined as the minimum of the two BAC tests, it also follows the conservative classification logic described earlier in the paper and reduces the risk that small differences across the two readings mechanically assign a driver to the harsher-penalty side of the threshold.
+
+#### 6.3. BAC distribution near the 0.08 cutoff
+
+To check for unusual “bunching” right at the legal threshold, we zoom in on a narrow window around BAC = 0.08.
+
+```{r}
+#| label: bac-zoom-008
+#| message: false
+#| warning: false
+
+dwi_008 <- dwi %>% 
+  filter(bac_min >= 0.03, bac_min <= 0.13)
+
+ggplot(dwi_008, aes(x = bac_min)) +
+  geom_density(fill = "deepskyblue3", alpha = 0.45, linewidth = 1) +
+  geom_vline(xintercept = 0.08, linewidth = 1.2, 
+             linetype = "dashed", colour = "firebrick3") +
+  labs(
+    title = "BAC distribution near the 0.08 cutoff",
+    subtitle = "Density plot for bac_min in [0.03, 0.13]; 
+    dashed red line at 0.08",
+    x = "BAC (bac_min)",
+    y = "Density"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold"))
+```
+
+***Fig. 2.***
+
+The local BAC density around the 0.08 threshold provides an important diagnostic for the credibility of the regression discontinuity design. In RD settings, a key concern is whether units can precisely manipulate their position relative to the cutoff, since such sorting would undermine the claim that observations just below and just above the threshold are comparable. To examine this, the analysis restricts the sample to a narrow interval, bac_min between 0.03 and 0.13, and plots the density around the legal limit. The resulting distribution appears broadly smooth around 0.08, with no obvious visual spike, gap, or discontinuous break exactly at the threshold. This pattern is reassuring because it suggests that the assignment rule changes sharply at BAC 0.08, while the underlying density of the running variable itself does not. In other words, the policy cutoff appears to create a discontinuity in punishment rather than a discontinuity in who enters the sample, which is precisely the pattern required for a credible local RD comparison. However, this conclusion is based on graphical inspection rather than a formal density test, so it should be interpreted as supportive rather than definitive evidence for the no-manipulation assumption.
+
+#### 6.4. Baseline recidivism rate
+
+As a reference point, we compute the overall recidivism rate in the full sample.
+
+```{r}
+#| label: baseline-recidivism
+#| message: false
+#| warning: false
+
+dwi %>%
+  summarise(
+    n = n(),
+    recidivism_rate = mean(recidivism, na.rm = TRUE)
+  )
+```
+
+***Table. 1.***
+
+The full-sample recidivism rate provides useful substantive context for interpreting the later RD estimates. Across 214,558 traffic stops, the mean value of recidivism is 0.1176325, implying that approximately 11.8 percent of observations are followed by another drunk-driving offense. This baseline shows that repeat offending is not a rare outcome in the sample and therefore represents a meaningful policy problem. It also helps place the later treatment effects in perspective. For example, an estimated decline of roughly 1 to 2 percentage points near the threshold would represent a nontrivial reduction relative to a baseline recidivism rate of about 11.8 percent. At the same time, this overall mean should be interpreted only as a descriptive benchmark rather than as the counter factual risk for drivers near the cutoff, since the RD design identifies a local treatment effect specifically for observations close to BAC 0.08.
+
+#### 6.5. Missingness check
+
+Before making any data-cleaning decisions, we report how much 'missingness' exists in the key analysis variables.
+
+```{r}
+#| label: missingness-check
+#| message: false
+#| warning: false
+
+key_vars <- c("bac1", "bac2", "bac_min", "recidivism", 
+              "male", "white", "aged", "acc", "year")
+
+dwi %>%
+  summarise(across(all_of(key_vars), ~ mean(is.na(.)))) %>%
+  pivot_longer(everything(), names_to = "variable",
+               values_to = "missing_share") %>%
+  arrange(desc(missing_share))
+```
+
+***Table. 2.***
+
+The missingness check indicates that data quality is strong for all variables used in the main analysis. The reported missing-share table shows zero missingness for bac1, bac2, bac_min, recidivism, male, white, aged, acc, and year. This matters because it means the estimation sample does not depend on selective case deletion or imputation, both of which could otherwise distort comparisons near the policy threshold. In practical terms, the absence of missingness ensures that the running variable, treatment assignment, outcome, and predetermined covariates are all observed consistently for the same full sample of 214,558 stops. This strengthens the internal coherence of the analysis and supports the earlier claim in the Data section that no additional exclusions are required before implementing the regression discontinuity design.
+
+#### 6.6. Quick near-cutoff comparison
+
+As an initial descriptive check, we compare observations just below vs just above each cutoff within a narrow window (±0.02 BAC). This is not the final regression discontinuity estimate, but it provides an early sense of whether outcomes and co-variates look similar near the threshold.
+
+```{r}
+#| label: near-cutoff-summary
+#| message: false
+#| warning: false
+
+w <- 0.02  # window size (±0.02)
+
+summary_near <- function(cutoff) {
+  dwi %>%
+    filter(bac_min >= cutoff - w, bac_min <= cutoff + w) %>%
+    mutate(above = as.integer(bac_min >= cutoff)) %>%
+    group_by(above) %>%
+    summarise(
+      n = n(),
+      recid_rate = mean(recidivism),
+      male_share = mean(male),
+      white_share = mean(white),
+      mean_age = mean(aged),
+      acc_share = mean(acc),
+      .groups = "drop"
+    ) %>%
+    mutate(cutoff = cutoff) %>%
+    relocate(cutoff, above)
+}
+
+bind_rows(
+  summary_near(0.08),
+) %>%
+  arrange(cutoff, above)
+```
+
+***Table. 3.***
+
+As a first descriptive check of local comparability, the analysis compares drivers just below and just above the 0.08 cutoff within a narrow ±0.02 BAC window. In this interval, there are 14,584 observations below the threshold and 25,790 above it. The recidivism rate is 0.115 for those just below 0.08 and 0.0989 for those just above, indicating a lower raw repeat-offense rate on the harsher-penalty side of the cutoff. At the same time, the predetermined covariates are fairly similar across the two groups: the male share is 0.784 below versus 0.792 above, the white share is 0.846 below versus 0.852 above, mean age is 34.5 below versus 33.9 above, and accident involvement is 0.0902 below versus 0.0899 above. This pattern is encouraging for the RD design because it suggests that drivers immediately on either side of the legal threshold are broadly comparable in observable characteristics, while the outcome itself shows a noticeable difference. These descriptive contrasts do not yet constitute the causal RD estimate, but they provide initial evidence consistent with the hypothesis that crossing BAC 0.08 is associated with lower subsequent recidivism.
+
+#### 6.7. Interim takeaways from initial exploration
+
+At this stage, we have, (i) created the running variable for the regression discontinuity design (bac_min, defined as the minimum of the two BAC tests), (ii) checked basic data quality. Taken together, the exploratory results provide encouraging support for the regression discontinuity strategy used in this paper. The running variable is well defined and sufficiently populated around the BAC 0.08 threshold, the local density does not show obvious evidence of manipulation or sorting at the cutoff, and the key analysis variables contain no missing values. In addition, the near-cutoff comparisons show that drivers just below and just above the legal limit look broadly similar in predetermined characteristics, while recidivism is visibly lower on the harsher-penalty side of the threshold. These findings do not by themselves establish causality, since descriptive evidence cannot replace formal RD estimation, but they do show that the data behave in a way that is consistent with the identification logic outlined earlier in the paper. Overall, the exploratory analysis suggests that the 0.08 BAC rule creates a plausible local policy discontinuity and that the dataset is well suited for estimating whether stricter DUI sanctions reduce future recidivism.
+
+#### 6.8. Difference summary table
+
+```{r}
+#| label: near-cutoff-differences
+#| message: false
+#| warning: false
+
+near_tbl <- bind_rows(
+  summary_near(0.08),
+)
+
+near_tbl %>%
+  group_by(cutoff) %>%
+  summarise(
+    diff_recid = recid_rate[above == 1] - recid_rate[above == 0],
+    diff_male  = male_share[above == 1] - male_share[above == 0],
+    diff_white = white_share[above == 1] - white_share[above == 0],
+    diff_age   = mean_age[above == 1] - mean_age[above == 0],
+    diff_acc   = acc_share[above == 1] - acc_share[above == 0],
+    .groups = "drop"
+  )
+```
+
+***Table. 4.***
+
+The difference summary table makes the local contrasts at the 0.08 cutoff easier to interpret by expressing them directly as above-minus-below differences within the ±0.02 window. The most important result is the recidivism difference of −0.0158, meaning that drivers just above the legal limit have a recidivism rate about 1.58 percentage points lower than drivers just below it. By comparison, the discontinuities in the predetermined covariates are much smaller: the male share differs by 0.00735, the white share by 0.00596, mean age by −0.606 years, and accident involvement by only −0.000356. This pattern is substantively important because it shows that the raw local jump in the outcome is larger than the corresponding local shifts in observable background characteristics. While this table is still descriptive and does not yet adjust for local slope differences in BAC, it provides a transparent summary that is consistent with the broader RD logic of the paper: the major change at the threshold appears in the outcome of interest rather than in the composition of drivers on either side of the cutoff.
+
+**7. DAG: Visualizing the causal relationship**
+
+![ ***Fig. 3. Simplified DAG showing the causal logic.***](images/dagitty-model.jpeg){#fig-dag fig-align="center" width="70%"}
+
+The DAG presents the causal logic behind our regression discontinuity design. BAC is the running variable, and the indicator *Above08* represents the legal assignment rule that turns on at the 0.08 threshold. Crossing that threshold exposes a driver to a harsher bundle of DUI sanctions, so punishment is the treatment mechanism through which the policy rule may affect future recidivism. The node U represents unobserved driver characteristics, such as impulsiveness, alcoholism or alcohol dependence, or risk tolerance, that may influence both BAC and the likelihood of reoffending. These latent factors create a backdoor path between BAC and recidivism, which is why a simple comparison of drivers with higher and lower BAC levels would be confounded. For clarity, we do not include all observed covariates in the DAG.
+
+For clarity, we do not include every observed variable from the dataset in the DAG. Variables such as sex, race, and age are observed background characteristics in the data rather than components of U, and we evaluate them later through near-cutoff comparisons, placebo tests, and robustness checks to assess whether drivers just below and just above 0.08 are locally comparable. We treat accident involvement somewhat differently: unlike sex, race, or age, it is best understood as an observed incident characteristic measured at the time of the stop rather than a fixed background trait. For that reason, we do not emphasize it as a core confounder in the DAG, but we still examine it empirically as part of our robustness controls and placebo analysis. This simplified graph therefore highlights the main identification logic of the paper while leaving supporting observable covariates to the later diagnostic sections.
+
+
+**7.1. Causal Logic**
+
+Building on the DAG, the key empirical challenge is to isolate the effect of harsher DUI punishment from the characteristics of the drivers who receive it. Drivers with higher BAC levels are more likely to face tougher penalties, but they may also differ in less visible ways, such as impulsiveness, alcohol misuse, or a greater willingness to take risks, that independently increase the likelihood of future recidivism. For that reason, a simple comparison between drivers with lower and higher BAC levels would confound the effect of punishment with the effect of those underlying differences.
+
+The 0.08 BAC cutoff helps address this problem because Washington State’s DUI penalties increase sharply at that threshold. Drivers just below and just above 0.08 should be similar in both observed and unobserved characteristics, while only those above the cutoff are exposed to the harsher sanction bundle. This is what makes the setting well suited to a regression discontinuity design: by comparing drivers very close to the threshold, we use the policy rule as a source of quasi-experimental variation to estimate the local effect of harsher punishment on future recidivism. The identifying claim is therefore local rather than global. We do not assume that all drivers below and above 0.08 are comparable; we assume only that drivers very near the cutoff are plausibly comparable aside from the treatment intensity created by the legal threshold
+
+**8. Identification Assumptions and Supporting Checks**
+
+Our regression discontinuity design relies on three main assumptions. First, potential recidivism outcomes must vary smoothly through the 0.08 cutoff in the absence of the policy rule. This continuity assumption means that drivers just below and just above the threshold would have had similar expected recidivism if punishment did not change discretely at 0.08. Second, drivers must not be able to precisely manipulate their position relative to the cutoff. If observations could be sorted just below or just above 0.08 in a systematic way, the local comparison would be less credible. Third, treatment intensity must change sharply at the threshold, which is satisfied here because Washington’s DUI sanctions become meaningfully harsher once BAC reaches 0.08.
+
+We evaluate these assumptions using several supporting checks. The local density of the running variable around 0.08 appears visually smooth rather than showing an obvious spike, gap, or break at the threshold, which is consistent with the no-precise-sorting assumption. At the same time, this is graphical rather than formal evidence, so it should be interpreted as supportive rather than definitive. We also estimate placebo regression discontinuity models using predetermined or pre-outcome observable characteristics as outcomes. If these variables do not jump at the threshold, that supports the claim that drivers on either side of 0.08 are locally comparable. Together, these checks do not prove the assumptions, but they provide evidence that the design is credible. 
+
+**8.1 The Placebo Tests**
+
+Our placebo tests evaluate whether the observations just below and just above the 0.08 BAC cutoff are truly comparable. We run these tests because a valid regression discontinuity design requires that the cutoff changes only the treatment intensity, in this case, harsher punishment, rather than abruptly changing the underlying composition of the drivers being compared. To check this, we re-estimate the RD specification using predetermined variables such as male, white, aged, and acc as outcomes instead of recidivism. If the design is credible, we should not observe a discontinuous jump at the cutoff for any of these variables. A significant jump would suggest that drivers on either side of 0.08 differ in ways other than punishment, which would weaken the validity of the comparison. Because our analysis focuses on the instructor-approved 0.08 threshold, we perform these placebo checks only at that cutoff.
+
+```{r}
+#Create centered variable for BAC at 0.08 cutoff
+dwi <- dwi %>%
+  mutate(bac_centered_08 = bac_min - 0.08)
+
+# Run placebo regressions at the 0.08 cutoff
+p1 <- feols(male  ~ above_08 * bac_centered_08,
+            data = dwi %>% filter(abs(bac_centered_08) < 0.05),
+            vcov = "hetero")
+
+p2 <- feols(white ~ above_08 * bac_centered_08,
+            data = dwi %>% filter(abs(bac_centered_08) < 0.05),
+            vcov = "hetero")
+
+p3 <- feols(aged  ~ above_08 * bac_centered_08,
+            data = dwi %>% filter(abs(bac_centered_08) < 0.05),
+            vcov = "hetero")
+
+p4 <- feols(acc   ~ above_08 * bac_centered_08,
+            data = dwi %>% filter(abs(bac_centered_08) < 0.05),
+            vcov = "hetero")
+
+etable(p1, p2, p3, p4)
+```
+
+***Table. 5. Regression Table of placebo tests***
+
+The placebo regression results support the credibility of the design and provide a useful check on whether drivers just below and just above the 0.08 BAC cutoff are comparable. In these models, we replace recidivism with predetermined characteristics, sex, race, age, and accident involvement, and estimate the same regression discontinuity specification used in the main analysis. The coefficient of interest is the indicator for being above the cutoff, since it captures any discrete jump at the threshold. Across these regressions, that coefficient is small and statistically insignificant in every case, suggesting that these observable characteristics do not change abruptly at 0.08. This pattern is consistent with the idea that drivers on either side of the legal threshold are similar in observable ways, which supports the credibility of the regression discontinuity design. We report heteroskedasticity-robust standard errors in the placebo regressions for consistency with the main analysis and because the variance of the error term may differ across observations.
+
+**9. Regression Discontinuity Specification**
+
+**9.1 The working equation**
+
+We now return to the regression discontinuity specification introduced earlier and explain its components more formally. This section clarifies the interpretation of each term, the rationale for using a local linear form, and the inference choices used in the main analysis.
+
+$$
+\text{Recidivism}_i = \beta_0 + \beta_1 \text{Above08}_i + \beta_2 (BAC_i - 0.08) + \beta_3 \big[\text{Above08}_i \times (BAC_i - 0.08)\big] + \varepsilon_i
+$$
+
+To estimate the effect of harsher punishment at the legal threshold, we use a local linear regression discontinuity specification centered at BAC=0.08. In this model, Above08 indicates whether a driver falls at or above the legal cutoff, while the centered BAC term measures distance from the threshold. The interaction term allows the relationship between BAC and recidivism to differ on either side of the cutoff. The coefficient of primary interest is B1​, which captures the discontinuous jump in recidivism at 0.08 and therefore identifies the local effect of crossing the legal BAC threshold.
+
+We use a local linear specification because the identifying information in regression discontinuity designs comes from observations close to the cutoff, where a linear approximation is most credible. This approach is preferable to imposing a single global polynomial over a wider BAC range, because distant observations can distort the estimate at the threshold and introduce stronger functional-form assumptions than the design requires. We report heteroskedasticity-robust standard errors because the outcome is binary and the variance of the error term may differ across observations. This avoids relying on homoskedasticity in local comparisons around the threshold. Clustered standard errors at rounded BAC values could also be explored as a further robustness check, but the main logic of the design does not depend on that additional step.
+
+**10. Main Regression Discontinuity Models**
+
+Now that we have checked the key assumptions in our data set, we proceed to the main regression discontinuity analysis. The purpose of this section is to estimate whether crossing the 0.08 BAC threshold, and thereby receiving a harsher set of DUI penalties, reduces the likelihood of future recidivism. We center the running variable at the cutoff, create an indicator for being above the threshold, and interact these two terms to allow the relationship between BAC and recidivism to differ on either side of 0.08. In this setup, the coefficient on the treatment indicator measures the jump in recidivism at the cutoff and is interpreted as the local effect of harsher punishment for drivers near the legal limit.
+
+We estimate three versions of the model. First, we use a wider bandwidth of 0.05 as the baseline specification. Second, we estimate the same model within a narrower 0.02 bandwidth as a robustness check, asking whether the result remains when attention is restricted to observations closest to the cutoff. Third, we re-estimate the model using the wider 0.05 bandwidth while adding observed covariates as controls. Although these controls are not necessary for identification, they help show whether the estimated discontinuity changes once observable driver characteristics are taken into account. Taken together, these three specifications allow us to evaluate the robustness of the estimated deterrent effect.
+
+**10.1 Main RD Estimate at the 0.08 BAC Cutoff (±0.05 Window)**
+
+```{r}
+
+r1 <- feols(
+  recidivism ~ above_08 * bac_centered_08,
+  data = dwi %>% filter(abs(bac_centered_08) < 0.05),
+  vcov = "hetero"
+)
+
+etable(r1)
+```
+
+***Table. 6***
+
+Our baseline estimate comes from a local linear regression discontinuity model using observations within ±0.05 of the 0.08 BAC cutoff. We choose this specification because the logic of RD is local: the most credible comparison is between drivers nearest the threshold, since they should be similar in both observed and unobserved characteristics except for the sharper punishment regime that begins at 0.08. The model centers BAC at the cutoff and includes an interaction between above_08 and the centered BAC term so that the slope relating BAC to recidivism may differ on either side of the threshold. This ensures that the coefficient on above_08 isolates the discontinuous change in recidivism at the legal boundary. The estimated coefficient is -0.0188, which is statistically significant and indicates that drivers just above 0.08 have a recidivism rate about 1.9 percentage points lower than similar drivers just below the cutoff. This provides evidence of a deterrent effect, although the claim should be interpreted narrowly. Substantively, this result is consistent with the view that the harsher penalties triggered at 0.08 deter future drunk-driving offenses among marginal offenders.
+
+**10.2 Robustness Check: Narrower Bandwidth (±0.02)**
+
+```{r}
+r2 <- feols(recidivism ~ above_08 * bac_centered_08,
+            data = dwi %>% filter(abs(bac_centered_08) < 0.02), vcov ="hetero")
+etable(r2)
+```
+
+***Table. 7.***
+
+We next re-estimate the local linear RD model within a narrower ±0.02 bandwidth around the 0.08 cutoff, restricting the sample to drivers with BAC values between 0.06 and 0.10. We run this specification as a robustness check because the credibility of an RD design comes from comparing observations as close to the threshold as possible. By focusing on a tighter neighborhood around 0.08, this model asks whether the estimated deterrent effect still appears when the comparison is limited to drivers who are even more similar at baseline. The tradeoff is that the narrower window uses fewer observations, so we expect less precision than in the baseline ±0.05 model.
+
+The estimated coefficient on `above_08` is -0.0133 and remains statistically significant at the 5 percent level. This implies that drivers just above the 0.08 cutoff have a recidivism rate about 1.3 percentage points lower than drivers just below it, even when the sample is restricted to the observations closest to the legal threshold. The estimate is somewhat smaller than the baseline result of -0.0188, but it keeps the same sign and remains statistically meaningful. In the context of this paper, that pattern matters: it shows that our main result is not dependent on the wider ±0.05 window and continues to hold in a tighter local comparison. We therefore interpret the ±0.02 model as reinforcing, rather than replacing, the baseline finding that harsher DUI sanctions at 0.08 reduce recidivism for drivers near the cutoff.
+
+**10.3 Robustness Check: RD Estimate with Demographic Controls**
+
+We next re-estimate the baseline ±0.05 local linear RD model with male, white, and aged included as controls. These variables are not necessary for identification in a regression discontinuity design, since identification comes from the local comparison around the cutoff rather than from conditioning on additional covariates. We include them as a robustness check to see whether the estimated discontinuity at 0.08 changes once observable demographic differences are taken into account.
+
+```{r}
+r3 <- feols(recidivism ~ above_08 * bac_centered_08 + male + white + aged,
+            data = dwi %>% filter(abs(bac_centered_08) < 0.05), vcov = "hetero")
+etable(r3)
+```
+
+***Table. 8.***
+
+Our results show that the estimated discontinuity does not change. The coefficient on `above_08` is -0.0192, almost identical to the baseline estimate of -0.0188. That consistency matters because it suggests that the main result is not being driven by observable differences in sex, race, or age across the threshold. Instead, the estimated decline in recidivism remains firmly tied to the policy discontinuity itself. In other words, adding demographic controls does not alter the substantive conclusion that drivers just above 0.08 appear less likely to reoffend than drivers just below it, which is consistent with a local deterrent effect of the harsher punishment.
+
+**11. Results and Interpretation**
+
+**11.1 RD plot of recidivism around 0.08 cutoff.**
+
+```{r}
+
+#| label: rd-plot-recidivism
+
+dwi %>%
+  filter(abs(bac_centered_08) < 0.05) %>%  # same bandwidth as main regression
+  ggplot(aes(x = bac_centered_08, y = recidivism)) +
+
+  # binned means
+  stat_summary_bin(
+    bins = 30,
+    fun = mean,
+    geom = "point",
+    color = "black"
+  ) +
+
+  # fitted line left of cutoff
+  geom_smooth(
+    data = dwi %>% filter(bac_centered_08 < 0 & abs(bac_centered_08) < 0.05),
+    method = "lm",
+    se = FALSE,
+    color = "steelblue"
+  ) +
+
+  # fitted line right of cutoff
+  geom_smooth(
+    data = dwi %>% filter(bac_centered_08 >= 0 & abs(bac_centered_08) < 0.05),
+    method = "lm",
+    se = FALSE,
+    color = "red"
+  ) +
+
+  geom_vline(xintercept = 0, linetype = "dashed") +
+
+  labs(
+    title = "Recidivism Around the 0.08 BAC Cutoff",
+    x = "BAC centered at 0.08",
+    y = "Mean Recidivism Rate"
+  ) +
+
+  theme_minimal()
+```
+
+***Figure 4. RD plot of recidivism around 0.08 cutoff***
+
+Figure 4 provides visual evidence on the outcome pattern around the 0.08 BAC cutoff. We include this figure to assess whether the raw data exhibit the kind of discontinuity that the regression discontinuity design is intended to estimate. The plot shows a clear downward shift in recidivism at the threshold: the fitted line just below 0.08 ends at a higher level than the fitted line just above 0.08 begins. This indicates that drivers immediately above the legal cutoff have lower subsequent recidivism rates than drivers immediately below it. Because 0.08 is the point at which DUI sanctions become harsher, this visible break is consistent with a deterrent effect of the policy.
+
+The figure is substantively important because it reflects the same local comparison that underlies the regression discontinuity framework. The analysis does not rely on broad comparisons across the BAC distribution, but instead on observations in the immediate neighborhood of the legal threshold, where drivers are most plausibly comparable aside from the change in punishment intensity. Within that local window, the plot shows that recidivism is lower on the harsher-penalty side of the cutoff. In addition, the fitted lines differ in slope across the threshold, which supports our decision to estimate a specification that allows the BAC–recidivism relationship to vary on either side of 0.08. Overall, Figure 9 provides graphical support for the main regression results and strengthens our conclusion that harsher DUI sanctions at the 0.08 threshold reduce recidivism among drivers near the cutoff.
+
+**11.2 Results and Interpretation**
+
+Putting the results together, they provide consistent evidence of a deterrent effect at the 0.08 BAC threshold. Across the baseline specification, the narrower-bandwidth robustness check, and the specification that includes demographic controls, the estimated coefficient on `above_08` remains negative and statistically significant. Substantively, these estimates imply that drivers just above the legal cutoff have recidivism rates approximately 1.3 to 1.9 percentage points lower than comparable drivers just below the cutoff. The stability of this pattern across reasonable alternative specifications strengthens the credibility of the finding and suggests that the result is not driven by a particular bandwidth choice or by the inclusion of observable demographic characteristics. Accordingly, we interpret these estimates as evidence that the harsher DUI penalties triggered at BAC 0.08 reduce future drunk-driving recidivism for drivers near the legal threshold.
+
+**12. Limitations**
+
+This study has several important limitations. First, the regression discontinuity design identifies a local treatment effect, meaning the estimates apply to drivers whose BAC levels lie very close to the 0.08 threshold. As a result, the findings should not be interpreted as the effect of harsher DUI punishment for all offenders, especially those with BAC levels far above or below the cutoff. Second, crossing the 0.08 threshold triggers a bundle of sanctions, including fines, license suspension, mandatory requirements, and possible jail time, so the analysis cannot isolate which specific penalty generates the observed deterrent effect. Third, the outcome measures recorded recidivism, not all future impaired driving, which means the estimates reflect changes in detected repeat offending rather than changes in every instance of drunk driving behavior. Finally, while the smooth density of the running variable and the absence of discontinuities in observable covariates strengthen the credibility of the design, these checks support the identifying assumptions rather than prove them conclusively. Taken together, these limitations suggest that the results should be interpreted as credible but context-specific evidence that harsher sanctions at the 0.08 BAC threshold reduce repeat DUI offending among marginal offenders.
+
+**13. Conclusion**
+
+This paper investigates whether crossing the 0.08 BAC threshold, and thus becoming subject to harsher DUI penalties, reduces the likelihood of future drunk-driving recidivism. Using a regression discontinuity design centered at the legal cutoff, we find consistent evidence of a deterrent effect. Across the baseline specification and robustness checks, drivers just above the 0.08 threshold have recidivism rates approximately 1.3 to 1.9 percentage points lower than comparable drivers just below it. The stability of this result across alternative specifications strengthens confidence that the estimated discontinuity is not driven by a particular modeling choice.
+
+The supporting evidence is also consistent with the credibility of the design. BAC appears smoothly distributed around the cutoff, and placebo tests reveal no discontinuities in observable characteristics at 0.08. These findings support the view that the reduction in recidivism reflects the change in punishment intensity at the legal threshold rather than sudden differences in the types of drivers being compared. The estimated effect should nevertheless be interpreted as local, applying to offenders near the cutoff rather than to all drunk drivers, and it captures the effect of the full set of harsher penalties rather than any single component in isolation.
+
+Overall, the results indicate that the harsher penalties triggered at the 0.08 BAC threshold reduce repeat offending among drivers near the legal limit. More broadly, the findings suggest that legal thresholds in DUI policy can play an important role in deterrence by changing behavior at precisely the point where punishments become more severe.
+
+**References:**
+
+Hansen, B. (2015). Punishment and deterrence: Evidence from drunk driving. *American Economic Review, 105*(4), 1581–1617. <https://doi.org/10.1257/aer.20130189>
